@@ -2,6 +2,7 @@ mod camera;
 mod texture;
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
+use rand::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
@@ -182,7 +183,7 @@ impl State {
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
-        let camera_controller = camera::CameraController::new(4.0, 0.4);
+        let camera_controller = camera::CameraController::new(10.0, 0.8);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera buffer"),
@@ -279,13 +280,13 @@ impl State {
 
         let num_indices = INDICES.len() as u32;
 
-        const SPACE_BETWEEN: f32 = 2.0;
+        const SPACE_BETWEEN: f32 = 1.0;
         let instances = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                     let position = cgmath::Vector3 {
                         x: SPACE_BETWEEN * x as f32,
-                        y: 0.0,
+                        y: (f32::sin(x as f32) + f32::sin(z as f32)).round(),
                         z: SPACE_BETWEEN * z as f32,
                     } - INSTANCE_DISPLACEMENT;
 
@@ -485,15 +486,15 @@ const VERTICES_OLD: &[Vertex] = &[
 #[rustfmt::skip]
 const VERTICES: &[Vertex] = &[
     // Front
-    Vertex { position: [-1.0, 1.0, 0.0], color: [1.0, 0.0, 0.0] }, // A
-    Vertex { position: [-1.0, -1.0, 0.0], color: [0.0, 1.0, 0.0] }, // B
-    Vertex { position: [1.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] }, // C
-    Vertex { position: [1.0, -1.0, 0.0], color: [1.0, 0.0, 0.0] }, // D
+    Vertex { position: [-0.5, 0.5, 0.0], color: [0.5, 0.0, 0.2] }, // A
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 0.5, 0.2] }, // B
+    Vertex { position: [0.5, 0.5, 0.0], color: [0.0, 0.0, 0.2] }, // C
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.5, 0.0, 0.2] }, // D
     // Back
-    Vertex { position: [-1.0, 1.0, -2.0], color: [1.0, 0.0, 0.0] }, // A
-    Vertex { position: [-1.0, -1.0, -2.0], color: [0.0, 1.0, 0.0] }, // B
-    Vertex { position: [1.0, 1.0, -2.0], color: [0.0, 0.0, 1.0] }, // C
-    Vertex { position: [1.0, -1.0, -2.0], color: [1.0, 0.0, 0.0] }, // D
+    Vertex { position: [-0.5, 0.5, -2.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.5, -0.5, -2.0], color: [0.0, 0.5, 0.5] }, // B
+    Vertex { position: [0.5, 0.5, -2.0], color: [0.0, 0.0, 0.5] }, // C
+    Vertex { position: [0.5, -0.5, -2.0], color: [0.5, 0.0, 0.5] }, // D
 ];
 
 #[rustfmt::skip]

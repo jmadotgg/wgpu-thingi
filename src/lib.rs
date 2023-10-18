@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
-use rand::prelude::*;
+//use rand::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
@@ -98,21 +98,10 @@ pub async fn run() {
 
 #[derive(Debug)]
 struct Chunk {
-    //pub position: cgmath::Point2<f32>,
     pub instance_data: Vec<InstanceRaw>,
 }
 
 impl Chunk {
-    //pub fn new<P, I>(position: P, instances: &I) -> Self
-    //where
-    //    P: Into<cgmath::Point2<f32>>,
-    //    I: Into<Vec<InstanceRaw>>,
-    //{
-    //    Self {
-    //        position: position.into(),
-    //        instances: (*instances).into(),
-    //    }
-    //}
     pub fn new<T>(offset: T) -> Self
     where
         T: Into<cgmath::Point3<f32>>,
@@ -147,12 +136,6 @@ impl Chunk {
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
 
         Self { instance_data }
-
-        //self.queue.write_buffer(
-        //    &self.instance_buffer,
-        //    0,
-        //    bytemuck::cast_slice(&instance_data.as_slice()),
-        //);
     }
 }
 
@@ -243,7 +226,7 @@ impl State {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
-        let camera = camera::Camera::new((0.0, 0.0, 1.0), cgmath::Deg(-90.0), cgmath::Deg(0.0));
+        let camera = camera::Camera::new((0.0, 2.0, 0.0), cgmath::Deg(-90.0), cgmath::Deg(0.0));
         let projection =
             camera::Projection::new(config.width, config.height, cgmath::Deg(70.0), 0.1, 100.0);
 
@@ -410,14 +393,7 @@ impl State {
                         ..
                     },
                 ..
-            } => {
-                if *key == VirtualKeyCode::C {
-                    self.generate_chunk(self.camera.position);
-                    true
-                } else {
-                    self.camera_controller.process_keyboard(*key, *state)
-                }
-            }
+            } => self.camera_controller.process_keyboard(*key, *state),
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
@@ -537,46 +513,6 @@ impl State {
 
         Ok(())
     }
-
-    fn generate_chunk<T>(&mut self, offset: T)
-    where
-        T: Into<cgmath::Point3<f32>>,
-    {
-        let offset: cgmath::Point3<f32> = offset.into();
-        const SPACE_BETWEEN: f32 = 1.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let position = cgmath::Vector3 {
-                        x: offset.x.round() + SPACE_BETWEEN * x as f32,
-                        y: offset.y.round() + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-                        z: offset.z.round() + SPACE_BETWEEN * z as f32,
-                    } - INSTANCE_DISPLACEMENT;
-
-                    let rotation = if position.is_zero() {
-                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                        // as Quaternions can effect scale if they're not created correctly
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-
-        self.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&instance_data.as_slice()),
-        );
-    }
 }
 
 #[repr(C)]
@@ -608,14 +544,6 @@ impl Vertex {
 }
 
 #[rustfmt::skip]
-const VERTICES_OLD: &[Vertex] = &[
-    Vertex { position: [-0.5, 0.5, 0.0], color: [0.5, 0.0, 0.0] }, // A
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 0.5, 0.0] }, // B
-    Vertex { position: [0.5, 0.5, 0.0], color: [0.0, 0.0, 0.5] }, // C
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.5, 0.0, 0.0] }, // D
-];
-
-#[rustfmt::skip]
 const VERTICES: &[Vertex] = &[
     // Front
     Vertex { position: [-0.5, 0.5, 0.0], color: [0.5, 0.0, 0.2] }, // A
@@ -627,13 +555,6 @@ const VERTICES: &[Vertex] = &[
     Vertex { position: [-0.5, -0.5, -1.0], color: [0.0, 0.5, 0.5] }, // B
     Vertex { position: [0.5, 0.5, -1.0], color: [0.0, 0.0, 0.5] }, // C
     Vertex { position: [0.5, -0.5, -1.0], color: [0.5, 0.0, 0.5] }, // D
-];
-
-#[rustfmt::skip]
-const INDICES_OLD: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
 ];
 
 #[rustfmt::skip]
@@ -740,7 +661,7 @@ impl InstanceRaw {
     }
 }
 
-const NUM_INSTANCES_PER_ROW: u32 = 30;
+const NUM_INSTANCES_PER_ROW: u32 = 64;
 const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
     NUM_INSTANCES_PER_ROW as f32 * 0.5,
     0.0,

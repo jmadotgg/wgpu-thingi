@@ -286,7 +286,7 @@ impl State {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                     let position = cgmath::Vector3 {
                         x: SPACE_BETWEEN * x as f32,
-                        y: (f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        y: 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
                         z: SPACE_BETWEEN * z as f32,
                     } - INSTANCE_DISPLACEMENT;
 
@@ -363,7 +363,14 @@ impl State {
                         ..
                     },
                 ..
-            } => self.camera_controller.process_keyboard(*key, *state),
+            } => {
+                if *key == VirtualKeyCode::C {
+                    self.generate_chunk(self.camera.position);
+                    true
+                } else {
+                    self.camera_controller.process_keyboard(*key, *state)
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
@@ -385,6 +392,7 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
+
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -445,6 +453,48 @@ impl State {
 
         Ok(())
     }
+
+    fn generate_chunk<T>(&mut self, offset: T)
+    where
+        T: Into<cgmath::Point3<f32>>,
+    {
+        let offset: cgmath::Point3<f32> = offset.into();
+        const SPACE_BETWEEN: f32 = 1.0;
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: offset.x.round() + SPACE_BETWEEN * x as f32,
+                        y: offset.y.round() + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        z: offset.z.round() + SPACE_BETWEEN * z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can effect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+
+        self.instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+    }
 }
 
 #[repr(C)]
@@ -491,10 +541,10 @@ const VERTICES: &[Vertex] = &[
     Vertex { position: [0.5, 0.5, 0.0], color: [0.0, 0.0, 0.2] }, // C
     Vertex { position: [0.5, -0.5, 0.0], color: [0.5, 0.0, 0.2] }, // D
     // Back
-    Vertex { position: [-0.5, 0.5, -2.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.5, -0.5, -2.0], color: [0.0, 0.5, 0.5] }, // B
-    Vertex { position: [0.5, 0.5, -2.0], color: [0.0, 0.0, 0.5] }, // C
-    Vertex { position: [0.5, -0.5, -2.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [-0.5, 0.5, -1.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.5, -0.5, -1.0], color: [0.0, 0.5, 0.5] }, // B
+    Vertex { position: [0.5, 0.5, -1.0], color: [0.0, 0.0, 0.5] }, // C
+    Vertex { position: [0.5, -0.5, -1.0], color: [0.5, 0.0, 0.5] }, // D
 ];
 
 #[rustfmt::skip]

@@ -1,5 +1,7 @@
 mod camera;
 mod texture;
+use std::collections::HashMap;
+
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
 use rand::prelude::*;
@@ -94,6 +96,68 @@ pub async fn run() {
     }
 }
 
+#[derive(Debug)]
+struct Chunk {
+    //pub position: cgmath::Point2<f32>,
+    pub instance_data: Vec<InstanceRaw>,
+}
+
+impl Chunk {
+    //pub fn new<P, I>(position: P, instances: &I) -> Self
+    //where
+    //    P: Into<cgmath::Point2<f32>>,
+    //    I: Into<Vec<InstanceRaw>>,
+    //{
+    //    Self {
+    //        position: position.into(),
+    //        instances: (*instances).into(),
+    //    }
+    //}
+    pub fn new<T>(offset: T) -> Self
+    where
+        T: Into<cgmath::Point3<f32>>,
+    {
+        let offset: cgmath::Point3<f32> = offset.into();
+        const SPACE_BETWEEN: f32 = 1.0;
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: offset.x.round() + SPACE_BETWEEN * x as f32,
+                        y: offset.y.round() + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        z: offset.z.round() + SPACE_BETWEEN * z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can effect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+
+        Self { instance_data }
+
+        //self.queue.write_buffer(
+        //    &self.instance_buffer,
+        //    0,
+        //    bytemuck::cast_slice(&instance_data.as_slice()),
+        //);
+    }
+}
+
+type ChunkId = String;
+
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -112,9 +176,11 @@ struct State {
     camera_uniform: CameraUniform,
     camera_controller: camera::CameraController,
     mouse_pressed: bool,
-    instances: Vec<Instance>,
+    //instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
+    chunks: HashMap<ChunkId, Chunk>,
+    current_chunk: ChunkId,
 }
 
 impl State {
@@ -280,38 +346,17 @@ impl State {
 
         let num_indices = INDICES.len() as u32;
 
-        const SPACE_BETWEEN: f32 = 1.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let position = cgmath::Vector3 {
-                        x: SPACE_BETWEEN * x as f32,
-                        y: 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-                        z: SPACE_BETWEEN * z as f32,
-                    } - INSTANCE_DISPLACEMENT;
+        let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
+        let mut chunks = HashMap::new();
 
-                    let rotation = if position.is_zero() {
-                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                        // as Quaternions can effect scale if they're not created correctly
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
+            contents: bytemuck::cast_slice(&initial_chunk.instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+
+        chunks.insert("00".to_string() as ChunkId, initial_chunk);
+        let current_chunk = "00".to_string();
 
         Self {
             window,
@@ -331,9 +376,11 @@ impl State {
             camera_bind_group,
             camera_controller,
             mouse_pressed: false,
-            instances,
+            //instances,
             instance_buffer,
             depth_texture,
+            chunks,
+            current_chunk,
         }
     }
 
@@ -393,7 +440,38 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
-        println!("{:?}", self.camera.position);
+        let x = self.camera.position.x as i32 / (NUM_INSTANCES_PER_ROW as i32 / 2);
+        let z = self.camera.position.z as i32 / (NUM_INSTANCES_PER_ROW as i32 / 2);
+        let potential_new_chunk = format!("{x}{z}");
+
+        // TODO: uff ugly as hell
+        if potential_new_chunk != self.current_chunk {
+            if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&chunk.instance_data.as_slice()),
+                );
+            } else {
+                let new_chunk = Chunk::new((
+                    (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+                    0.0,
+                    (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+                ));
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
+                );
+                self.chunks.insert(potential_new_chunk.clone(), new_chunk);
+            };
+
+            println!(
+                "New Chunk {} | Previous chunk {}",
+                potential_new_chunk, self.current_chunk,
+            );
+            self.current_chunk = potential_new_chunk;
+        }
 
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -447,7 +525,11 @@ impl State {
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            render_pass.draw_indexed(
+                0..self.num_indices,
+                0,
+                0..(NUM_INSTANCES_PER_ROW.pow(2)) as _,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

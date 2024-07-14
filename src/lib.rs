@@ -96,6 +96,11 @@ pub async fn run() {
     }
 }
 
+// linear interpolation
+fn lerp(t: f32, a: f32, b: f32) -> f32 {
+    a + t * (b - a)
+}
+
 #[derive(Debug)]
 struct Chunk {
     pub instance_data: Vec<InstanceRaw>,
@@ -107,13 +112,69 @@ impl Chunk {
         T: Into<cgmath::Point3<f32>>,
     {
         let offset: cgmath::Point3<f32> = offset.into();
+
         const SPACE_BETWEEN: f32 = 1.0;
+
+        // https://jaysmito101.hashnode.dev/perlins-noise-algorithm
+        let mut gradients: [cgmath::Vector2<f32>; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
+            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
+            .map(|i| cgmath::Vector2::new(rand::random::<f32>(), rand::random::<f32>()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        let mut permutation: [usize; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
+            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        for (i, mut j) in (0..NUM_INSTANCES_PER_ROW as usize).enumerate() {
+            let k = permutation[i];
+            j = rand::random::<usize>() % NUM_INSTANCES_PER_ROW as usize;
+            permutation[i] = permutation[j];
+            permutation[j] = k;
+        }
+
+        for i in 0..NUM_INSTANCES_PER_ROW as usize + 2 {
+            permutation[NUM_INSTANCES_PER_ROW as usize + i] = permutation[i];
+            gradients[NUM_INSTANCES_PER_ROW as usize + i] = gradients[i];
+        }
+
+        dbg!(gradients);
+
         let instances = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let rx0 = gradients[x as usize].x;
+                    let rx1 = rx0 - 1f32;
+                    let ry0 = gradients[z as usize].y;
+                    let ry1 = ry0 - 1f32;
+
+                    let bx0 = x as usize % 255;
+                    let by0 = z as usize % 255;
+                    let bx1 = (bx0 + 1) % 255;
+                    let by1 = (by0 + 1) % 255;
+
+                    let i = permutation[bx0];
+                    let j = permutation[bx1];
+
+                    let b00 = permutation[i + by0];
+                    let b10 = permutation[j + by1];
+                    let b01 = permutation[i + by0];
+                    let b11 = permutation[j + by1];
+
+                    let u = cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
+                    let v = cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
+                    let a = lerp(rx0, u, v);
+                    let u = cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
+                    let v = cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
+                    let b = lerp(rx0, u, v);
+                    let res = lerp(ry0, a, b) * 10.0;
+
                     let position = cgmath::Vector3 {
                         x: offset.x.round() + SPACE_BETWEEN * x as f32,
-                        y: offset.y.round() + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        y: offset.y.round() + 0.0 + res as f32, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
                         z: offset.z.round() + SPACE_BETWEEN * z as f32,
                     } - INSTANCE_DISPLACEMENT;
 
@@ -137,6 +198,10 @@ impl Chunk {
 
         Self { instance_data }
     }
+}
+
+fn noise(x: u32, z: u32) -> f32 {
+    return rand::random();
 }
 
 type ChunkId = String;
@@ -477,7 +542,7 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
+                            r: 0.6,
                             g: 0.2,
                             b: 0.3,
                             a: 1.0,

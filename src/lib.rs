@@ -104,6 +104,7 @@ fn lerp(t: f32, a: f32, b: f32) -> f32 {
 #[derive(Debug)]
 struct Chunk {
     pub instance_data: Vec<InstanceRaw>,
+    pub vertex_data: Vec<Vertex>,
 }
 
 impl Chunk {
@@ -118,7 +119,7 @@ impl Chunk {
         // https://jaysmito101.hashnode.dev/perlins-noise-algorithm
         let mut gradients: [cgmath::Vector2<f32>; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
             ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
-            .map(|i| cgmath::Vector2::new(rand::random::<f32>(), rand::random::<f32>()))
+            .map(|_| cgmath::Vector2::new(rand::random::<f32>(), rand::random::<f32>()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -141,11 +142,9 @@ impl Chunk {
             gradients[NUM_INSTANCES_PER_ROW as usize + i] = gradients[i];
         }
 
-        dbg!(gradients);
-
-        let instances = (0..NUM_INSTANCES_PER_ROW)
+        let instances_vertices = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                (0..NUM_INSTANCES_PER_ROW * 2).map(move |x| {
                     let rx0 = gradients[x as usize].x;
                     let rx1 = rx0 - 1f32;
                     let ry0 = gradients[z as usize].y;
@@ -170,12 +169,13 @@ impl Chunk {
                     let u = cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
                     let v = cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
                     let b = lerp(rx0, u, v);
-                    let res = lerp(ry0, a, b) * 10.0;
+                    let res = lerp(ry0, a, b) * 100.0;
 
+                    dbg!(x);
                     let position = cgmath::Vector3 {
-                        x: offset.x.round() + SPACE_BETWEEN * x as f32,
-                        y: offset.y.round() + 0.0 + res as f32, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-                        z: offset.z.round() + SPACE_BETWEEN * z as f32,
+                        x: offset.x.floor() + x as f32 / 2.0,
+                        y: offset.y.floor() + 0.0 + res.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        z: offset.z.floor() + z as f32,
                     } - INSTANCE_DISPLACEMENT;
 
                     let rotation = if position.is_zero() {
@@ -189,14 +189,48 @@ impl Chunk {
                         cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
                     };
 
-                    Instance { position, rotation }
+                    let color = if position.y > 0.0 {
+                        [0.2, 0.3, 0.2]
+                    } else {
+                        [0.05, 0.04, 0.05]
+                    };
+
+                    #[rustfmt::skip]
+                    let vertices = vec![
+                        // Front
+                        Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
+                        Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
+                        Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
+                        Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
+                        // Back
+                        Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
+                        Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
+                        Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
+                        Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
+                    ];
+
+                    //vertices_instances.push(vertices);
+
+                    (Instance { position, rotation }, vertices)
                 })
             })
             .collect::<Vec<_>>();
 
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_data = instances_vertices
+            .iter()
+            .map(|(instance, _)| Instance::to_raw(instance))
+            .collect::<Vec<_>>();
 
-        Self { instance_data }
+        let vertex_data = instances_vertices
+            .iter()
+            .map(|(_, vertices)| vertices.clone())
+            .flatten()
+            .collect::<Vec<_>>();
+
+        Self {
+            instance_data,
+            vertex_data,
+        }
     }
 }
 
@@ -215,6 +249,7 @@ struct State {
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    vertex_buffers: Vec<wgpu::Buffer>,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     camera: camera::Camera,
@@ -380,19 +415,36 @@ impl State {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffers = (0..NUM_INSTANCES_PER_ROW * 2)
+            .map(|i| {
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(VERTICES),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                vertex_buffer
+            })
+            .collect::<Vec<_>>();
+
+        let indices = (0..NUM_INSTANCES_PER_ROW.pow(2))
+            .map(|i| {
+                INDICES
+                    .iter()
+                    .map(|e| e + (i * 16) as u16)
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        dbg!(indices.len());
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = indices.len() as u32; //INDICES.len() as u32 * NUM_INSTANCES_PER_ROW.pow(2);
 
         let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
         let mut chunks = HashMap::new();
@@ -401,6 +453,14 @@ impl State {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&initial_chunk.instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        dbg!(&initial_chunk.vertex_data.len());
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&initial_chunk.vertex_data),
+            usage: wgpu::BufferUsages::VERTEX,
         });
 
         chunks.insert("00".to_string() as ChunkId, initial_chunk);
@@ -415,6 +475,7 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
+            vertex_buffers,
             index_buffer,
             num_indices,
             camera,
@@ -486,33 +547,33 @@ impl State {
         let potential_new_chunk = format!("{x}{z}");
 
         // TODO: uff ugly as hell
-        if potential_new_chunk != self.current_chunk {
-            if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
-                self.queue.write_buffer(
-                    &self.instance_buffer,
-                    0,
-                    bytemuck::cast_slice(&chunk.instance_data.as_slice()),
-                );
-            } else {
-                let new_chunk = Chunk::new((
-                    (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-                    0.0,
-                    (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-                ));
-                self.queue.write_buffer(
-                    &self.instance_buffer,
-                    0,
-                    bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
-                );
-                self.chunks.insert(potential_new_chunk.clone(), new_chunk);
-            };
+        //if potential_new_chunk != self.current_chunk {
+        //    if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
+        //        self.queue.write_buffer(
+        //            &self.instance_buffer,
+        //            0,
+        //            bytemuck::cast_slice(&chunk.instance_data.as_slice()),
+        //        );
+        //    } else {
+        //        let new_chunk = Chunk::new((
+        //            (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+        //            0.0,
+        //            (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+        //        ));
+        //        self.queue.write_buffer(
+        //            &self.instance_buffer,
+        //            0,
+        //            bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
+        //        );
+        //        self.chunks.insert(potential_new_chunk.clone(), new_chunk);
+        //    };
 
-            println!(
-                "New Chunk {} | Previous chunk {}",
-                potential_new_chunk, self.current_chunk,
-            );
-            self.current_chunk = potential_new_chunk;
-        }
+        //    println!(
+        //        "New Chunk {} | Previous chunk {}",
+        //        potential_new_chunk, self.current_chunk,
+        //    );
+        //    self.current_chunk = potential_new_chunk;
+        //}
 
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -543,8 +604,8 @@ impl State {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.6,
-                            g: 0.2,
-                            b: 0.3,
+                            g: 0.6,
+                            b: 0.6,
                             a: 1.0,
                         }),
                         store: true,
@@ -566,10 +627,32 @@ impl State {
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
+            //for i in 0..NUM_INSTANCES_PER_ROW {
+            //    for j in 0..NUM_INSTANCES_PER_ROW {
+            //        //self.queue.write_buffer(
+            //        //    &self.instance_buffer,
+            //        //    0,
+            //        //    bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
+            //        //);
+            //        render_pass.set_vertex_buffer(
+            //            0,
+            //            self.vertex_buffers
+            //                .get((i + j) as usize)
+            //                .expect("Whoops vertex buffer shenanigans")
+            //                .slice(..),
+            //        );
+            //        render_pass.
+            //        render_pass.draw_indexed(0..self.num_indices, 0, (i + j)..(i + j + 1));
+
+            //
+            //    }
+            //}
+
             render_pass.draw_indexed(
                 0..self.num_indices,
                 0,
-                0..(NUM_INSTANCES_PER_ROW.pow(2)) as _,
+                0..1,
+                //0..(NUM_INSTANCES_PER_ROW.pow(2)) as _,
             );
         }
 

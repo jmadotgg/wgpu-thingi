@@ -142,39 +142,57 @@ impl Chunk {
             gradients[NUM_INSTANCES_PER_ROW as usize + i] = gradients[i];
         }
 
-        let instances_vertices = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW * 2).map(move |x| {
-                    let rx0 = gradients[x as usize].x;
-                    let rx1 = rx0 - 1f32;
-                    let ry0 = gradients[z as usize].y;
-                    let ry1 = ry0 - 1f32;
+        let noise_calculation = (0..NUM_INSTANCES_PER_ROW)
+            .map(|z| {
+                (0..NUM_INSTANCES_PER_ROW)
+                    .map(move |x| {
+                        let rx0 = gradients[x as usize].x;
+                        let rx1 = rx0 - 1f32;
+                        let ry0 = gradients[z as usize].y;
+                        let ry1 = ry0 - 1f32;
 
-                    let bx0 = x as usize % 255;
-                    let by0 = z as usize % 255;
-                    let bx1 = (bx0 + 1) % 255;
-                    let by1 = (by0 + 1) % 255;
+                        let bx0 = x as usize % 255;
+                        let by0 = z as usize % 255;
+                        let bx1 = (bx0 + 1) % 255;
+                        let by1 = (by0 + 1) % 255;
 
-                    let i = permutation[bx0];
-                    let j = permutation[bx1];
+                        let i = permutation[bx0];
+                        let j = permutation[bx1];
 
-                    let b00 = permutation[i + by0];
-                    let b10 = permutation[j + by1];
-                    let b01 = permutation[i + by0];
-                    let b11 = permutation[j + by1];
+                        let b00 = permutation[i + by0];
+                        let b10 = permutation[j + by1];
+                        let b01 = permutation[i + by0];
+                        let b11 = permutation[j + by1];
 
-                    let u = cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
-                    let v = cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
-                    let a = lerp(rx0, u, v);
-                    let u = cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
-                    let v = cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
-                    let b = lerp(rx0, u, v);
-                    let res = lerp(ry0, a, b) * 100.0;
+                        let u =
+                            cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
+                        let v =
+                            cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
+                        let a = lerp(rx0, u, v);
+                        let u =
+                            cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
+                        let v =
+                            cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
+                        let b = lerp(rx0, u, v);
+                        let res = lerp(ry0, a, b) * 20.0;
 
-                    dbg!(x);
+                        if res > 0.0 {
+                            (0..res as u32).map(|i| i as f32).collect::<Vec<_>>()
+                        } else {
+                            (res as u32..0).map(|i| i as f32).collect::<Vec<_>>()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        #[rustfmt::skip]
+        let instances_vertices = noise_calculation.into_iter().enumerate().flat_map(|(z, row)| {
+            row.into_iter().enumerate().flat_map(move |(x, noise)| {
+                noise.into_iter().map(move |y| {
                     let position = cgmath::Vector3 {
-                        x: offset.x.floor() + x as f32 / 2.0,
-                        y: offset.y.floor() + 0.0 + res.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        x: offset.x.floor() + x as f32,
+                        y: offset.y.floor() + y.floor() , //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
                         z: offset.z.floor() + z as f32,
                     } - INSTANCE_DISPLACEMENT;
 
@@ -212,9 +230,82 @@ impl Chunk {
                     //vertices_instances.push(vertices);
 
                     (Instance { position, rotation }, vertices)
-                })
-            })
-            .collect::<Vec<_>>();
+                }).collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
+        }).collect::<Vec<_>>();
+
+        //let instances_vertices = (0..NUM_INSTANCES_PER_ROW)
+        //    .flat_map(|z| {
+        //        (0..NUM_INSTANCES_PER_ROW * 2).map(move |x| {
+        //            let rx0 = gradients[x as usize].x;
+        //            let rx1 = rx0 - 1f32;
+        //            let ry0 = gradients[z as usize].y;
+        //            let ry1 = ry0 - 1f32;
+
+        //            let bx0 = x as usize % 255;
+        //            let by0 = z as usize % 255;
+        //            let bx1 = (bx0 + 1) % 255;
+        //            let by1 = (by0 + 1) % 255;
+
+        //            let i = permutation[bx0];
+        //            let j = permutation[bx1];
+
+        //            let b00 = permutation[i + by0];
+        //            let b10 = permutation[j + by1];
+        //            let b01 = permutation[i + by0];
+        //            let b11 = permutation[j + by1];
+
+        //            let u = cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
+        //            let v = cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
+        //            let a = lerp(rx0, u, v);
+        //            let u = cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
+        //            let v = cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
+        //            let b = lerp(rx0, u, v);
+        //            let res = lerp(ry0, a, b) * 40.0;
+
+        //            let position = cgmath::Vector3 {
+        //                x: offset.x.floor() + x as f32 / 2.0,
+        //                y: offset.y.floor() + 0.0 + res.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+        //                z: offset.z.floor() + z as f32,
+        //            } - INSTANCE_DISPLACEMENT;
+
+        //            let rotation = if position.is_zero() {
+        //                // this is needed so an object at (0, 0, 0) won't get scaled to zero
+        //                // as Quaternions can effect scale if they're not created correctly
+        //                cgmath::Quaternion::from_axis_angle(
+        //                    cgmath::Vector3::unit_z(),
+        //                    cgmath::Deg(0.0),
+        //                )
+        //            } else {
+        //                cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
+        //            };
+
+        //            let color = if position.y > 0.0 {
+        //                [0.2, 0.3, 0.2]
+        //            } else {
+        //                [0.05, 0.04, 0.05]
+        //            };
+
+        //            #[rustfmt::skip]
+        //            let vertices = vec![
+        //                // Front
+        //                Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
+        //                Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
+        //                Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
+        //                Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
+        //                // Back
+        //                Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
+        //                Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
+        //                Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
+        //                Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
+        //            ];
+
+        //            //vertices_instances.push(vertices);
+
+        //            (Instance { position, rotation }, vertices)
+        //        })
+        //    })
+        //    .collect::<Vec<_>>();
 
         let instance_data = instances_vertices
             .iter()
@@ -249,7 +340,6 @@ struct State {
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    vertex_buffers: Vec<wgpu::Buffer>,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     camera: camera::Camera,
@@ -415,28 +505,15 @@ impl State {
             multiview: None,
         });
 
-        let vertex_buffers = (0..NUM_INSTANCES_PER_ROW * 2)
-            .map(|i| {
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(VERTICES),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                vertex_buffer
-            })
-            .collect::<Vec<_>>();
-
         let indices = (0..NUM_INSTANCES_PER_ROW.pow(2))
             .map(|i| {
                 INDICES
                     .iter()
-                    .map(|e| e + (i * 16) as u16)
+                    .map(|e| e + (i * 8) as u16)
                     .collect::<Vec<_>>()
             })
             .flatten()
             .collect::<Vec<_>>();
-
-        dbg!(indices.len());
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
@@ -454,8 +531,6 @@ impl State {
             contents: bytemuck::cast_slice(&initial_chunk.instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-
-        dbg!(&initial_chunk.vertex_data.len());
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -475,7 +550,6 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
-            vertex_buffers,
             index_buffer,
             num_indices,
             camera,

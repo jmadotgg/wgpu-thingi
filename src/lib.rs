@@ -179,7 +179,7 @@ impl Chunk {
                         if res > 0.0 {
                             (0..res as u32).map(|i| i as f32).collect::<Vec<_>>()
                         } else {
-                            (res as u32..0).map(|i| i as f32).collect::<Vec<_>>()
+                            (res as i32..0).map(|i| i as f32).collect::<Vec<_>>()
                         }
                     })
                     .collect::<Vec<_>>()

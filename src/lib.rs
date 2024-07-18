@@ -4,9 +4,6 @@ use std::collections::HashMap;
 
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
-//use rand::prelude::*;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
@@ -75,25 +72,6 @@ pub async fn run() {
             _ => {}
         }
     });
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        // Winit prevents sizing with CSS, so we have to set
-        // the size manually when on web.
-        use winit::dpi::PhysicalSize;
-        window.set_inner_size(PhysicalSize::new(450, 400));
-
-        use winit::platform::web::WindowExtWebSys;
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| {
-                let dst = doc.get_element_by_id("wasm-example")?;
-                let canvas = web_sys::Element::from(window.canvas());
-                dst.append_child(&canvas).ok()?;
-                Some(())
-            })
-            .expect("Couldn't append canvas to document body.");
-    }
 }
 
 // linear interpolation
@@ -146,6 +124,7 @@ impl Chunk {
             .map(|z| {
                 (0..NUM_INSTANCES_PER_ROW)
                     .map(move |x| {
+                        //println!("z{z} x{x}");
                         let rx0 = gradients[x as usize].x;
                         let rx1 = rx0 - 1f32;
                         let ry0 = gradients[z as usize].y;
@@ -174,13 +153,11 @@ impl Chunk {
                         let v =
                             cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
                         let b = lerp(rx0, u, v);
-                        let res = lerp(ry0, a, b) * 20.0;
+                        let res = lerp(ry0, a, b) * 5.0;
+                        let res = res * 3.0;
 
-                        if res > 0.0 {
-                            (0..res as u32).map(|i| i as f32).collect::<Vec<_>>()
-                        } else {
-                            (res as i32..0).map(|i| i as f32).collect::<Vec<_>>()
-                        }
+                        (-10..res as i32).map(|i| i as f32).collect::<Vec<_>>()
+                        //vec![-1.0f32, 0.0, 1.0, 2.0, 3.0, 4.0]
                     })
                     .collect::<Vec<_>>()
             })
@@ -191,10 +168,11 @@ impl Chunk {
             row.into_iter().enumerate().flat_map(move |(x, noise)| {
                 noise.into_iter().map(move |y| {
                     let position = cgmath::Vector3 {
-                        x: offset.x.floor() + x as f32,
-                        y: offset.y.floor() + y.floor() , //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-                        z: offset.z.floor() + z as f32,
+                        x: offset.x + x as f32,
+                        y: offset.y + y.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+                        z: offset.z + z as f32,
                     } - INSTANCE_DISPLACEMENT;
+                    println!("z{} x{}", position.z, position.x);
 
                     let rotation = if position.is_zero() {
                         // this is needed so an object at (0, 0, 0) won't get scaled to zero
@@ -306,6 +284,52 @@ impl Chunk {
         //        })
         //    })
         //    .collect::<Vec<_>>();
+        //
+        //
+        //let mut vertex_data = Vec::new();
+        //let mut instance_data = Vec::new();
+        //for z in 0..(NUM_INSTANCES_PER_ROW as i32) {
+        //    for x in 0..(NUM_INSTANCES_PER_ROW as i32) {
+        //        let position = cgmath::Vector3 {
+        //            x: offset.x + x as f32,
+        //            y: offset.y + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+        //            z: offset.z + z as f32,
+        //        }; //- INSTANCE_DISPLACEMENT;
+        //        println!("z{}:oz{}:both{}", z, offset.z, position.z);
+
+        //        let rotation = if position.is_zero() {
+        //            // this is needed so an object at (0, 0, 0) won't get scaled to zero
+        //            // as Quaternions can effect scale if they're not created correctly
+        //            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+        //        } else {
+        //            cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
+        //        };
+        //        let color = if position.y > 0.0 {
+        //            [0.2, 0.3, 0.2]
+        //        } else {
+        //            [0.05, 0.04, 0.05]
+        //        };
+
+        //        #[rustfmt::skip]
+        //        let vertices = vec![
+        //            // Front
+        //            Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
+        //            Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
+        //            Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
+        //            Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
+        //            // Back
+        //            Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
+        //            Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
+        //            Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
+        //            Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
+        //        ];
+
+        //        for vertex in vertices {
+        //            vertex_data.push(vertex)
+        //        }
+        //        instance_data.push(Instance::to_raw(&Instance { position, rotation }));
+        //    }
+        //}
 
         let instance_data = instances_vertices
             .iter()
@@ -350,6 +374,7 @@ struct State {
     camera_controller: camera::CameraController,
     mouse_pressed: bool,
     //instances: Vec<Instance>,
+    num_instances: u32,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     chunks: HashMap<ChunkId, Chunk>,
@@ -505,25 +530,39 @@ impl State {
             multiview: None,
         });
 
-        let indices = (0..NUM_INSTANCES_PER_ROW.pow(2))
-            .map(|i| {
-                INDICES
-                    .iter()
-                    .map(|e| e + (i * 8) as u16)
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect::<Vec<_>>();
+        //let indices = (0..NUM_INSTANCES_PER_ROW.pow(2) * 32)
+        //    .map(|i| {
+        //        INDICES
+        //            .iter()
+        //            .map(|e| e + (i * 8) as u16)
+        //            .collect::<Vec<_>>()
+        //    })
+        //    .flatten()
+        //    .collect::<Vec<_>>();
+
+        let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
+        //let indices = (0..initial_chunk.instance_data.len())
+        //    .flat_map(|i| {
+        //        INDICES
+        //            .iter()
+        //            .map(|e| e + (i * 8) as u16)
+        //            .collect::<Vec<_>>()
+        //    })
+        //    .collect::<Vec<_>>();
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(&indices),
+            contents: bytemuck::cast_slice(INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let num_indices = indices.len() as u32; //INDICES.len() as u32 * NUM_INSTANCES_PER_ROW.pow(2);
+        let num_indices = INDICES.len() as u32;
+        let num_instances = initial_chunk.instance_data.len() as u32;
 
-        let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
+        dbg!(
+            initial_chunk.vertex_data.len(),
+            initial_chunk.instance_data.len()
+        );
         let mut chunks = HashMap::new();
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -534,7 +573,7 @@ impl State {
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(&initial_chunk.vertex_data),
+            contents: bytemuck::cast_slice(VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -560,6 +599,7 @@ impl State {
             camera_controller,
             mouse_pressed: false,
             //instances,
+            num_instances,
             instance_buffer,
             depth_texture,
             chunks,
@@ -615,6 +655,8 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
+
+        //println!("z{}x{}", self.camera.position.z as i32, self.camera.position.x as i32);
 
         let x = self.camera.position.x as i32 / (NUM_INSTANCES_PER_ROW as i32 / 2);
         let z = self.camera.position.z as i32 / (NUM_INSTANCES_PER_ROW as i32 / 2);
@@ -722,12 +764,7 @@ impl State {
             //    }
             //}
 
-            render_pass.draw_indexed(
-                0..self.num_indices,
-                0,
-                0..1,
-                //0..(NUM_INSTANCES_PER_ROW.pow(2)) as _,
-            );
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

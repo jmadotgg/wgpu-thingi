@@ -82,7 +82,6 @@ fn lerp(t: f32, a: f32, b: f32) -> f32 {
 #[derive(Debug)]
 struct Chunk {
     pub instance_data: Vec<InstanceRaw>,
-    pub vertex_data: Vec<Vertex>,
 }
 
 impl Chunk {
@@ -91,8 +90,6 @@ impl Chunk {
         T: Into<cgmath::Point3<f32>>,
     {
         let offset: cgmath::Point3<f32> = offset.into();
-
-        const SPACE_BETWEEN: f32 = 1.0;
 
         // https://jaysmito101.hashnode.dev/perlins-noise-algorithm
         let mut gradients: [cgmath::Vector2<f32>; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
@@ -124,7 +121,6 @@ impl Chunk {
             .map(|z| {
                 (0..NUM_INSTANCES_PER_ROW)
                     .map(move |x| {
-                        //println!("z{z} x{x}");
                         let rx0 = gradients[x as usize].x;
                         let rx1 = rx0 - 1f32;
                         let ry0 = gradients[z as usize].y;
@@ -172,7 +168,7 @@ impl Chunk {
                         y: offset.y + y.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
                         z: offset.z + z as f32,
                     } - INSTANCE_DISPLACEMENT;
-                    println!("z{} x{}", position.z, position.x);
+                    //println!("z{} x{}", position.z, position.x);
 
                     let rotation = if position.is_zero() {
                         // this is needed so an object at (0, 0, 0) won't get scaled to zero
@@ -185,172 +181,39 @@ impl Chunk {
                         cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
                     };
 
-                    let color = if position.y > 0.0 {
-                        [0.2, 0.3, 0.2]
-                    } else {
-                        [0.05, 0.04, 0.05]
-                    };
+                //                    let color = if position.y > 0.0 {
+//                        [0.2, 0.3, 0.2]
+//                    } else {
+//                        [0.05, 0.04, 0.05]
+//                    };
+//
+                    //#[rustfmt::skip]
+                    //let vertices = vec![
+                    //    // Front
+                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
+                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
+                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
+                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
+                    //    // Back
+                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
+                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
+                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
+                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
+                    //];
 
-                    #[rustfmt::skip]
-                    let vertices = vec![
-                        // Front
-                        Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
-                        Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
-                        Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
-                        Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
-                        // Back
-                        Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
-                        Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
-                        Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
-                        Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
-                    ];
 
-                    //vertices_instances.push(vertices);
-
-                    (Instance { position, rotation }, vertices)
+                    Instance { position, rotation }
                 }).collect::<Vec<_>>()
             }).collect::<Vec<_>>()
         }).collect::<Vec<_>>();
 
-        //let instances_vertices = (0..NUM_INSTANCES_PER_ROW)
-        //    .flat_map(|z| {
-        //        (0..NUM_INSTANCES_PER_ROW * 2).map(move |x| {
-        //            let rx0 = gradients[x as usize].x;
-        //            let rx1 = rx0 - 1f32;
-        //            let ry0 = gradients[z as usize].y;
-        //            let ry1 = ry0 - 1f32;
-
-        //            let bx0 = x as usize % 255;
-        //            let by0 = z as usize % 255;
-        //            let bx1 = (bx0 + 1) % 255;
-        //            let by1 = (by0 + 1) % 255;
-
-        //            let i = permutation[bx0];
-        //            let j = permutation[bx1];
-
-        //            let b00 = permutation[i + by0];
-        //            let b10 = permutation[j + by1];
-        //            let b01 = permutation[i + by0];
-        //            let b11 = permutation[j + by1];
-
-        //            let u = cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
-        //            let v = cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
-        //            let a = lerp(rx0, u, v);
-        //            let u = cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
-        //            let v = cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
-        //            let b = lerp(rx0, u, v);
-        //            let res = lerp(ry0, a, b) * 40.0;
-
-        //            let position = cgmath::Vector3 {
-        //                x: offset.x.floor() + x as f32 / 2.0,
-        //                y: offset.y.floor() + 0.0 + res.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-        //                z: offset.z.floor() + z as f32,
-        //            } - INSTANCE_DISPLACEMENT;
-
-        //            let rotation = if position.is_zero() {
-        //                // this is needed so an object at (0, 0, 0) won't get scaled to zero
-        //                // as Quaternions can effect scale if they're not created correctly
-        //                cgmath::Quaternion::from_axis_angle(
-        //                    cgmath::Vector3::unit_z(),
-        //                    cgmath::Deg(0.0),
-        //                )
-        //            } else {
-        //                cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
-        //            };
-
-        //            let color = if position.y > 0.0 {
-        //                [0.2, 0.3, 0.2]
-        //            } else {
-        //                [0.05, 0.04, 0.05]
-        //            };
-
-        //            #[rustfmt::skip]
-        //            let vertices = vec![
-        //                // Front
-        //                Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
-        //                Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
-        //                Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
-        //                Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
-        //                // Back
-        //                Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
-        //                Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
-        //                Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
-        //                Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
-        //            ];
-
-        //            //vertices_instances.push(vertices);
-
-        //            (Instance { position, rotation }, vertices)
-        //        })
-        //    })
-        //    .collect::<Vec<_>>();
-        //
-        //
-        //let mut vertex_data = Vec::new();
-        //let mut instance_data = Vec::new();
-        //for z in 0..(NUM_INSTANCES_PER_ROW as i32) {
-        //    for x in 0..(NUM_INSTANCES_PER_ROW as i32) {
-        //        let position = cgmath::Vector3 {
-        //            x: offset.x + x as f32,
-        //            y: offset.y + 0.0, //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-        //            z: offset.z + z as f32,
-        //        }; //- INSTANCE_DISPLACEMENT;
-        //        println!("z{}:oz{}:both{}", z, offset.z, position.z);
-
-        //        let rotation = if position.is_zero() {
-        //            // this is needed so an object at (0, 0, 0) won't get scaled to zero
-        //            // as Quaternions can effect scale if they're not created correctly
-        //            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-        //        } else {
-        //            cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
-        //        };
-        //        let color = if position.y > 0.0 {
-        //            [0.2, 0.3, 0.2]
-        //        } else {
-        //            [0.05, 0.04, 0.05]
-        //        };
-
-        //        #[rustfmt::skip]
-        //        let vertices = vec![
-        //            // Front
-        //            Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
-        //            Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
-        //            Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
-        //            Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
-        //            // Back
-        //            Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
-        //            Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
-        //            Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
-        //            Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
-        //        ];
-
-        //        for vertex in vertices {
-        //            vertex_data.push(vertex)
-        //        }
-        //        instance_data.push(Instance::to_raw(&Instance { position, rotation }));
-        //    }
-        //}
-
         let instance_data = instances_vertices
             .iter()
-            .map(|(instance, _)| Instance::to_raw(instance))
+            .map(Instance::to_raw)
             .collect::<Vec<_>>();
 
-        let vertex_data = instances_vertices
-            .iter()
-            .map(|(_, vertices)| vertices.clone())
-            .flatten()
-            .collect::<Vec<_>>();
-
-        Self {
-            instance_data,
-            vertex_data,
-        }
+        Self { instance_data }
     }
-}
-
-fn noise(x: u32, z: u32) -> f32 {
-    return rand::random();
 }
 
 type ChunkId = String;
@@ -530,25 +393,7 @@ impl State {
             multiview: None,
         });
 
-        //let indices = (0..NUM_INSTANCES_PER_ROW.pow(2) * 32)
-        //    .map(|i| {
-        //        INDICES
-        //            .iter()
-        //            .map(|e| e + (i * 8) as u16)
-        //            .collect::<Vec<_>>()
-        //    })
-        //    .flatten()
-        //    .collect::<Vec<_>>();
-
         let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
-        //let indices = (0..initial_chunk.instance_data.len())
-        //    .flat_map(|i| {
-        //        INDICES
-        //            .iter()
-        //            .map(|e| e + (i * 8) as u16)
-        //            .collect::<Vec<_>>()
-        //    })
-        //    .collect::<Vec<_>>();
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
@@ -557,12 +402,12 @@ impl State {
         });
 
         let num_indices = INDICES.len() as u32;
+        // TODO: Have to get some upper limit, otherwise sometimes buffers are bigger than older
+        // buffer leading to errors when writing new buffer
         let num_instances = initial_chunk.instance_data.len() as u32;
 
-        dbg!(
-            initial_chunk.vertex_data.len(),
-            initial_chunk.instance_data.len()
-        );
+        dbg!(initial_chunk.instance_data.len());
+
         let mut chunks = HashMap::new();
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -663,33 +508,33 @@ impl State {
         let potential_new_chunk = format!("{x}{z}");
 
         // TODO: uff ugly as hell
-        //if potential_new_chunk != self.current_chunk {
-        //    if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
-        //        self.queue.write_buffer(
-        //            &self.instance_buffer,
-        //            0,
-        //            bytemuck::cast_slice(&chunk.instance_data.as_slice()),
-        //        );
-        //    } else {
-        //        let new_chunk = Chunk::new((
-        //            (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-        //            0.0,
-        //            (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-        //        ));
-        //        self.queue.write_buffer(
-        //            &self.instance_buffer,
-        //            0,
-        //            bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
-        //        );
-        //        self.chunks.insert(potential_new_chunk.clone(), new_chunk);
-        //    };
+        if potential_new_chunk != self.current_chunk {
+            if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&chunk.instance_data.as_slice()),
+                );
+            } else {
+                let new_chunk = Chunk::new((
+                    (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+                    0.0,
+                    (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+                ));
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    0,
+                    bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
+                );
+                self.chunks.insert(potential_new_chunk.clone(), new_chunk);
+            };
 
-        //    println!(
-        //        "New Chunk {} | Previous chunk {}",
-        //        potential_new_chunk, self.current_chunk,
-        //    );
-        //    self.current_chunk = potential_new_chunk;
-        //}
+            println!(
+                "New Chunk {} | Previous chunk {}",
+                potential_new_chunk, self.current_chunk,
+            );
+            self.current_chunk = potential_new_chunk;
+        }
 
         self.queue.write_buffer(
             &self.camera_buffer,

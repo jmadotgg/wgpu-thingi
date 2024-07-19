@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
+use chunk::Chunk;
+use chunk::Mesh;
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
@@ -80,151 +82,142 @@ fn lerp(t: f32, a: f32, b: f32) -> f32 {
     a + t * (b - a)
 }
 
-
-
-
-
-
-
-
-
-
-#[derive(Debug)]
-struct Chunk {
-    pub instance_data: Vec<InstanceRaw>,
-}
-
-impl Chunk {
-    pub fn new<T>(offset: T) -> Self
-    where
-        T: Into<cgmath::Point3<f32>>,
-    {
-        let offset: cgmath::Point3<f32> = offset.into();
-
-        // https://jaysmito101.hashnode.dev/perlins-noise-algorithm
-        let mut gradients: [cgmath::Vector2<f32>; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
-            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
-            .map(|_| cgmath::Vector2::new(rand::random::<f32>(), rand::random::<f32>()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
-        let mut permutation: [usize; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
-            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
-        for (i, mut j) in (0..NUM_INSTANCES_PER_ROW as usize).enumerate() {
-            let k = permutation[i];
-            j = rand::random::<usize>() % NUM_INSTANCES_PER_ROW as usize;
-            permutation[i] = permutation[j];
-            permutation[j] = k;
-        }
-
-        for i in 0..NUM_INSTANCES_PER_ROW as usize + 2 {
-            permutation[NUM_INSTANCES_PER_ROW as usize + i] = permutation[i];
-            gradients[NUM_INSTANCES_PER_ROW as usize + i] = gradients[i];
-        }
-
-        let noise_calculation = (0..NUM_INSTANCES_PER_ROW)
-            .map(|z| {
-                (0..NUM_INSTANCES_PER_ROW)
-                    .map(move |x| {
-                        let rx0 = gradients[x as usize].x;
-                        let rx1 = rx0 - 1f32;
-                        let ry0 = gradients[z as usize].y;
-                        let ry1 = ry0 - 1f32;
-
-                        let bx0 = x as usize % 255;
-                        let by0 = z as usize % 255;
-                        let bx1 = (bx0 + 1) % 255;
-                        let by1 = (by0 + 1) % 255;
-
-                        let i = permutation[bx0];
-                        let j = permutation[bx1];
-
-                        let b00 = permutation[i + by0];
-                        let b10 = permutation[j + by1];
-                        let b01 = permutation[i + by0];
-                        let b11 = permutation[j + by1];
-
-                        let u =
-                            cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
-                        let v =
-                            cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
-                        let a = lerp(rx0, u, v);
-                        let u =
-                            cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
-                        let v =
-                            cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
-                        let b = lerp(rx0, u, v);
-                        let res = lerp(ry0, a, b) * 5.0;
-                        let res = res * 3.0;
-
-                        (-10..res as i32).map(|i| i as f32).collect::<Vec<_>>()
-                        //vec![-1.0f32, 0.0, 1.0, 2.0, 3.0, 4.0]
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-
-        #[rustfmt::skip]
-        let instances_vertices = noise_calculation.into_iter().enumerate().flat_map(|(z, row)| {
-            row.into_iter().enumerate().flat_map(move |(x, noise)| {
-                noise.into_iter().map(move |y| {
-                    let position = cgmath::Vector3 {
-                        x: offset.x + x as f32,
-                        y: offset.y + y.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
-                        z: offset.z + z as f32,
-                    } - INSTANCE_DISPLACEMENT;
-                    //println!("z{} x{}", position.z, position.x);
-
-                    let rotation = if position.is_zero() {
-                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                        // as Quaternions can effect scale if they're not created correctly
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
-                    };
-
-                //                    let color = if position.y > 0.0 {
-//                        [0.2, 0.3, 0.2]
+//#[derive(Debug)]
+//struct Chunk {
+//    pub instance_data: Vec<InstanceRaw>,
+//}
+//
+//impl Chunk {
+//    pub fn new<T>(offset: T) -> Self
+//    where
+//        T: Into<cgmath::Point3<f32>>,
+//    {
+//        let offset: cgmath::Point3<f32> = offset.into();
+//
+//        // https://jaysmito101.hashnode.dev/perlins-noise-algorithm
+//        let mut gradients: [cgmath::Vector2<f32>; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
+//            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
+//            .map(|_| cgmath::Vector2::new(rand::random::<f32>(), rand::random::<f32>()))
+//            .collect::<Vec<_>>()
+//            .try_into()
+//            .unwrap();
+//
+//        let mut permutation: [usize; NUM_INSTANCES_PER_ROW as usize * 2 + 2] = (0
+//            ..NUM_INSTANCES_PER_ROW as usize * 2 + 2)
+//            .collect::<Vec<_>>()
+//            .try_into()
+//            .unwrap();
+//
+//        for (i, mut j) in (0..NUM_INSTANCES_PER_ROW as usize).enumerate() {
+//            let k = permutation[i];
+//            j = rand::random::<usize>() % NUM_INSTANCES_PER_ROW as usize;
+//            permutation[i] = permutation[j];
+//            permutation[j] = k;
+//        }
+//
+//        for i in 0..NUM_INSTANCES_PER_ROW as usize + 2 {
+//            permutation[NUM_INSTANCES_PER_ROW as usize + i] = permutation[i];
+//            gradients[NUM_INSTANCES_PER_ROW as usize + i] = gradients[i];
+//        }
+//
+//        let noise_calculation = (0..NUM_INSTANCES_PER_ROW)
+//            .map(|z| {
+//                (0..NUM_INSTANCES_PER_ROW)
+//                    .map(move |x| {
+//                        let rx0 = gradients[x as usize].x;
+//                        let rx1 = rx0 - 1f32;
+//                        let ry0 = gradients[z as usize].y;
+//                        let ry1 = ry0 - 1f32;
+//
+//                        let bx0 = x as usize % 255;
+//                        let by0 = z as usize % 255;
+//                        let bx1 = (bx0 + 1) % 255;
+//                        let by1 = (by0 + 1) % 255;
+//
+//                        let i = permutation[bx0];
+//                        let j = permutation[bx1];
+//
+//                        let b00 = permutation[i + by0];
+//                        let b10 = permutation[j + by1];
+//                        let b01 = permutation[i + by0];
+//                        let b11 = permutation[j + by1];
+//
+//                        let u =
+//                            cgmath::Vector2::dot(gradients[b00], cgmath::Vector2::new(rx0, ry0));
+//                        let v =
+//                            cgmath::Vector2::dot(gradients[b10], cgmath::Vector2::new(rx1, ry0));
+//                        let a = lerp(rx0, u, v);
+//                        let u =
+//                            cgmath::Vector2::dot(gradients[b01], cgmath::Vector2::new(rx0, ry1));
+//                        let v =
+//                            cgmath::Vector2::dot(gradients[b11], cgmath::Vector2::new(rx1, ry1));
+//                        let b = lerp(rx0, u, v);
+//                        let res = lerp(ry0, a, b) * 5.0;
+//                        let res = res * 3.0;
+//
+//                        (-10..res as i32).map(|i| i as f32).collect::<Vec<_>>()
+//                        //vec![-1.0f32, 0.0, 1.0, 2.0, 3.0, 4.0]
+//                    })
+//                    .collect::<Vec<_>>()
+//            })
+//            .collect::<Vec<_>>();
+//
+//        #[rustfmt::skip]
+//        let instances_vertices = noise_calculation.into_iter().enumerate().flat_map(|(z, row)| {
+//            row.into_iter().enumerate().flat_map(move |(x, noise)| {
+//                noise.into_iter().map(move |y| {
+//                    let position = cgmath::Vector3 {
+//                        x: offset.x + x as f32,
+//                        y: offset.y + y.floor(), //(f32::sin(x as f32) + f32::sin(z as f32)).round(),
+//                        z: offset.z + z as f32,
+//                    } - INSTANCE_DISPLACEMENT;
+//                    //println!("z{} x{}", position.z, position.x);
+//
+//                    let rotation = if position.is_zero() {
+//                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+//                        // as Quaternions can effect scale if they're not created correctly
+//                        cgmath::Quaternion::from_axis_angle(
+//                            cgmath::Vector3::unit_z(),
+//                            cgmath::Deg(0.0),
+//                        )
 //                    } else {
-//                        [0.05, 0.04, 0.05]
+//                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
 //                    };
 //
-                    //#[rustfmt::skip]
-                    //let vertices = vec![
-                    //    // Front
-                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
-                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
-                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
-                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
-                    //    // Back
-                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
-                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
-                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
-                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
-                    //];
-
-
-                    Instance { position, rotation }
-                }).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
-        }).collect::<Vec<_>>();
-
-        let instance_data = instances_vertices
-            .iter()
-            .map(Instance::to_raw)
-            .collect::<Vec<_>>();
-
-        Self { instance_data }
-    }
-}
+//                //                    let color = if position.y > 0.0 {
+////                        [0.2, 0.3, 0.2]
+////                    } else {
+////                        [0.05, 0.04, 0.05]
+////                    };
+////
+//                    //#[rustfmt::skip]
+//                    //let vertices = vec![
+//                    //    // Front
+//                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z + 0.0], color: color }, // A
+//                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z + 0.0], color: color }, // B
+//                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + 0.0], color: color }, // C
+//                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z + 0.0], color: color }, // D
+//                    //    // Back
+//                    //    Vertex { position: [position.x + -0.5, position.y +  0.5,  position.z +  -1.0], color: color }, // A
+//                    //    Vertex { position: [position.x + -0.5, position.y + -0.5, position.z +   -1.0], color: color }, // B
+//                    //    Vertex { position: [position.x +  0.5,  position.y +  0.5,  position.z + -1.0], color: color }, // C
+//                    //    Vertex { position: [position.x +  0.5,  position.y + -0.5, position.z +  -1.0], color: color }, // D
+//                    //];
+//
+//
+//                    Instance { position, rotation }
+//                }).collect::<Vec<_>>()
+//            }).collect::<Vec<_>>()
+//        }).collect::<Vec<_>>();
+//
+//        let instance_data = instances_vertices
+//            .iter()
+//            .map(Instance::to_raw)
+//            .collect::<Vec<_>>();
+//
+//        Self { instance_data }
+//    }
+//}
 
 type ChunkId = String;
 
@@ -247,11 +240,10 @@ struct State {
     camera_controller: camera::CameraController,
     mouse_pressed: bool,
     //instances: Vec<Instance>,
-    num_instances: u32,
-    instance_buffer: wgpu::Buffer,
+    //num_instances: u32,
+    // instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
-    chunks: HashMap<ChunkId, Chunk>,
-    current_chunk: ChunkId,
+    //chunks: HashMap<ChunkId, Chunk>,
 }
 
 impl State {
@@ -368,7 +360,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc(), InstanceRaw::desc()],
+                buffers: &[Vertex::desc() /*, InstanceRaw::desc()*/],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -403,38 +395,22 @@ impl State {
             multiview: None,
         });
 
-        let initial_chunk = Chunk::new((0.0, 0.0, 0.0));
+        let chunk = Chunk::new(chunk::Position::new(0, 0, 0));
+        let mesh = Mesh::from(&chunk);
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(&mesh.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let num_indices = INDICES.len() as u32;
-        // TODO: Have to get some upper limit, otherwise sometimes buffers are bigger than older
-        // buffer leading to errors when writing new buffer
-        let num_instances = initial_chunk.instance_data.len() as u32;
-
-        dbg!(initial_chunk.instance_data.len());
-
-        let mut chunks = HashMap::new();
-
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&initial_chunk.instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
+        let num_indices = mesh.indices.len() as u32;
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(&mesh.vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
-
-        chunks.insert("00".to_string() as ChunkId, initial_chunk);
-        let current_chunk = "00".to_string();
 
         Self {
             window,
@@ -455,11 +431,7 @@ impl State {
             camera_controller,
             mouse_pressed: false,
             //instances,
-            num_instances,
-            instance_buffer,
             depth_texture,
-            chunks,
-            current_chunk,
         }
     }
 
@@ -519,33 +491,33 @@ impl State {
         let potential_new_chunk = format!("{x}{z}");
 
         // TODO: uff ugly as hell
-        if potential_new_chunk != self.current_chunk {
-            if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
-                self.queue.write_buffer(
-                    &self.instance_buffer,
-                    0,
-                    bytemuck::cast_slice(&chunk.instance_data.as_slice()),
-                );
-            } else {
-                let new_chunk = Chunk::new((
-                    (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-                    0.0,
-                    (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
-                ));
-                self.queue.write_buffer(
-                    &self.instance_buffer,
-                    0,
-                    bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
-                );
-                self.chunks.insert(potential_new_chunk.clone(), new_chunk);
-            };
+        //if potential_new_chunk != self.current_chunk {
+        //    if let Some(chunk) = self.chunks.get(&format!("{x}{z}")) {
+        //        self.queue.write_buffer(
+        //            &self.instance_buffer,
+        //            0,
+        //            bytemuck::cast_slice(&chunk.instance_data.as_slice()),
+        //        );
+        //    } else {
+        //        let new_chunk = Chunk::new((
+        //            (x + x * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+        //            0.0,
+        //            (z + z * (NUM_INSTANCES_PER_ROW as i32 / 2)) as f32,
+        //        ));
+        //        self.queue.write_buffer(
+        //            &self.instance_buffer,
+        //            0,
+        //            bytemuck::cast_slice(&new_chunk.instance_data.as_slice()),
+        //        );
+        //        self.chunks.insert(potential_new_chunk.clone(), new_chunk);
+        //    };
 
-            println!(
-                "New Chunk {} | Previous chunk {}",
-                potential_new_chunk, self.current_chunk,
-            );
-            self.current_chunk = potential_new_chunk;
-        }
+        //    println!(
+        //        "New Chunk {} | Previous chunk {}",
+        //        potential_new_chunk, self.current_chunk,
+        //    );
+        //    self.current_chunk = potential_new_chunk;
+        //}
 
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -596,8 +568,8 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            //render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
             //for i in 0..NUM_INSTANCES_PER_ROW {
             //    for j in 0..NUM_INSTANCES_PER_ROW {
@@ -620,7 +592,7 @@ impl State {
             //    }
             //}
 
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -658,19 +630,19 @@ impl Vertex {
     }
 }
 
-#[rustfmt::skip]
-const VERTICES: &[Vertex] = &[
-    // Front
-    Vertex { position: [-0.5, 0.5, 0.0], color: [0.5, 0.0, 0.2] }, // A
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 0.5, 0.2] }, // B
-    Vertex { position: [0.5, 0.5, 0.0], color: [0.0, 0.0, 0.2] }, // C
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.5, 0.0, 0.2] }, // D
-    // Back
-    Vertex { position: [-0.5, 0.5, -1.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.5, -0.5, -1.0], color: [0.0, 0.5, 0.5] }, // B
-    Vertex { position: [0.5, 0.5, -1.0], color: [0.0, 0.0, 0.5] }, // C
-    Vertex { position: [0.5, -0.5, -1.0], color: [0.5, 0.0, 0.5] }, // D
-];
+//#[rustfmt::skip]
+//const VERTICES: &[Vertex] = &[
+//    // Front
+//    Vertex { position: [-0.5, 0.5, 0.0], color:  [0.5, 0.0, 0.2] }, // A
+//    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 0.5, 0.2] }, // B
+//    Vertex { position: [0.5, 0.5, 0.0], color:   [0.0, 0.0, 0.2] }, // C
+//    Vertex { position: [0.5, -0.5, 0.0], color:  [0.5, 0.0, 0.2] }, // D
+//    // Back
+//    Vertex { position: [-0.5, 0.5, -1.0], color: [0.5, 0.0, 0.5] }, // A
+//    Vertex { position: [-0.5, -0.5, -1.0], color:[0.0, 0.5, 0.5] }, // B
+//    Vertex { position: [0.5, 0.5, -1.0], color:  [0.0, 0.0, 0.5] }, // C
+//    Vertex { position: [0.5, -0.5, -1.0], color: [0.5, 0.0, 0.5] }, // D
+//];
 
 #[rustfmt::skip]
 const INDICES: &[u16] = &[
@@ -713,66 +685,6 @@ impl CameraUniform {
     fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
         self.view_pos = camera.position.to_homogeneous().into();
         self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
-    }
-}
-
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(self.rotation))
-            .into(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw {
-    model: [[f32; 4]; 4],
-}
-
-impl InstanceRaw {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We'll have to reassemble the mat4 in the shader.
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-            ],
-        }
     }
 }
 

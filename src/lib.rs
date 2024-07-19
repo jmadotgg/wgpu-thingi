@@ -1,4 +1,5 @@
 mod camera;
+mod chunk;
 mod texture;
 use std::collections::HashMap;
 
@@ -78,6 +79,15 @@ pub async fn run() {
 fn lerp(t: f32, a: f32, b: f32) -> f32 {
     a + t * (b - a)
 }
+
+
+
+
+
+
+
+
+
 
 #[derive(Debug)]
 struct Chunk {
@@ -415,6 +425,7 @@ impl State {
             contents: bytemuck::cast_slice(&initial_chunk.instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),

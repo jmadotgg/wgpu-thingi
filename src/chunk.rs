@@ -32,7 +32,7 @@ impl Chunk {
     pub fn new(pos: Position) -> Self {
         let mut chunk_data = [Block::GRASS; CHUNK_SIZE.pow(3)];
         for i in 0..chunk_data.len() {
-            chunk_data[i] = match rand::random::<f32>() {
+            chunk_data[i] = match rand::random(){
                 0.0..0.5 => Block::AIR,
                 0.5..1.0 => Block::GRASS,
                 _ => todo!(),
@@ -75,15 +75,16 @@ impl From<&Chunk> for Mesh {
         let mut vertices = Vec::new();
 
         for y in 0..CHUNK_SIZE {
-            for x in 0..CHUNK_SIZE { // order of x and y very important for vertex positions
+            for x in 0..CHUNK_SIZE {
+                // order of x and y very important for vertex positions
                 for z in 0..CHUNK_SIZE {
                     let block = chunk_data[y * z + x];
 
                     if block == Block::GRASS {
                         let (x, y, z) = (
-                            pos.x as f32 + x as f32 - CHUNK_DISPLACEMENT,
-                            pos.y as f32 + y as f32 - CHUNK_DISPLACEMENT,
-                            pos.z as f32 + z as f32 - CHUNK_DISPLACEMENT,
+                            pos.x as f32 - CHUNK_DISPLACEMENT + x as f32,
+                            pos.y as f32 - CHUNK_DISPLACEMENT + y as f32,
+                            pos.z as f32 - CHUNK_DISPLACEMENT + z as f32,
                         );
 
                         #[rustfmt::skip]
@@ -97,10 +98,6 @@ impl From<&Chunk> for Mesh {
                             Vertex { position: [x + 0.5,  y + 0.5,  z + -1.0], color: color[6] }, // C
                             Vertex { position: [x + 0.5,  y + -0.5, z + -1.0], color: color[7] }, // D
                         ]);
-                        //vertices.push(Vertex {
-                        //    position: [x, y, z],
-                        //    color,
-                        //})
                     }
                 }
             }
@@ -111,51 +108,12 @@ impl From<&Chunk> for Mesh {
                 INDICES
                     .to_vec()
                     .iter()
-                    .map(|e| i as u32 * INDICES.len() as u32 + *e as u32)
+                    .map(|e| i as u32 * 8 as u32 + *e as u32)
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
 
         let vertices = vertices.into_iter().flatten().collect::<Vec<_>>();
-        dbg!((0..108).map(|i| vertices.get(i).unwrap().position).collect::<Vec<_>>());
-
-        //#[rustfmt::skip]
-        //let vertices = vec![
-        //    // Front
-        //    Vertex {
-        //        position: [pos.x as f32 + -32.0, pos.y as f32 + 32.0, pos.z as f32 + 0.0],
-        //        color: color,
-        //    }, // A
-        //    Vertex {
-        //        position: [pos.x as f32 + -32.0, pos.y as f32 + -32.0, pos.z as f32 + 0.0],
-        //        color: color,
-        //    }, // B
-        //    Vertex {
-        //        position: [pos.x as f32 + 32.0, pos.y as f32 + 32.0, pos.z as f32 + 0.0],
-        //        color: color,
-        //    }, // C
-        //    Vertex {
-        //        position: [pos.x as f32 + 32.0, pos.y as f32 + -32.0, pos.z as f32 + 0.0],
-        //        color: color,
-        //    }, // D
-        //    // Back
-        //    Vertex {
-        //        position: [pos.x as f32 + -32.0, pos.y as f32 + 32.0, pos.z as f32 + -64.0],
-        //        color: color,
-        //    }, // A
-        //    Vertex {
-        //        position: [pos.x as f32 + -32.0, pos.y as f32 + -32.0, pos.z as f32 + -64.0],
-        //        color: color,
-        //    }, // B
-        //    Vertex {
-        //        position: [pos.x as f32 + 32.0, pos.y as f32 + 32.0, pos.z as f32 + -64.0],
-        //        color: color,
-        //    }, // C
-        //    Vertex {
-        //        position: [pos.x as f32 + 32.0, pos.y as f32 + -32.0, pos.z as f32 + -64.0],
-        //        color: color,
-        //    }, // D
-        //];
 
         Self { vertices, indices }
     }

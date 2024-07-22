@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use cgmath::prelude::*;
 use cgmath::SquareMatrix;
 use chunk::Chunk;
+use chunk::ChunkWatcher;
 use chunk::Mesh;
 use wgpu::util::DeviceExt;
 use winit::{
@@ -231,6 +232,7 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    chunk_buffers: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>,
     num_indices: u32,
     camera: camera::Camera,
     projection: camera::Projection,
@@ -239,6 +241,7 @@ struct State {
     camera_uniform: CameraUniform,
     camera_controller: camera::CameraController,
     mouse_pressed: bool,
+    chunk_watcher: ChunkWatcher,
     //instances: Vec<Instance>,
     //num_instances: u32,
     // instance_buffer: wgpu::Buffer,
@@ -395,7 +398,25 @@ impl State {
             multiview: None,
         });
 
-        let chunk = Chunk::new(chunk::Position::new(0, 0, 0));
+        let mut chunk_watcher = ChunkWatcher::new();
+        let meshes = chunk_watcher.get_required_chunk_mesh_data(&chunk::Position::new(0, 0, 0));
+
+        let mut chunk_buffers = Vec::new();
+        for (id, mesh) in meshes.iter().enumerate() {
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("Vertex Buffer {id}")),
+                contents: bytemuck::cast_slice(&mesh.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("Index Buffer {id}")),
+                contents: bytemuck::cast_slice(&mesh.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            chunk_buffers.push((vertex_buffer, index_buffer, mesh.indices.len() as u32));
+        }
+
+        let chunk = Chunk::new(&chunk::Position::new(0, 0, 0));
         let mesh = Mesh::from(&chunk);
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -418,6 +439,8 @@ impl State {
             device,
             queue,
             config,
+            chunk_watcher,
+            chunk_buffers,
             size,
             render_pipeline,
             vertex_buffer,
@@ -567,9 +590,9 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            //render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             //render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            //render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
             //for i in 0..NUM_INSTANCES_PER_ROW {
             //    for j in 0..NUM_INSTANCES_PER_ROW {
@@ -591,8 +614,14 @@ impl State {
             //
             //    }
             //}
-
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            //
+            //
+            for chunk_buffer in self.chunk_buffers.iter() {
+                let (vertex_buffer, index_buffer, num_indices) = chunk_buffer;
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

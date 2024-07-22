@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{Vertex, INDICES};
 
 const CHUNK_SIZE: usize = 64;
@@ -9,12 +11,14 @@ enum Block {
     AIR = 0,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Hash, Clone, Copy)]
 pub struct Position {
     pub x: i32,
     pub y: i32,
     pub z: i32,
 }
+
+impl std::cmp::Eq for Position {}
 
 impl Position {
     pub fn new(x: i32, y: i32, z: i32) -> Self {
@@ -29,16 +33,19 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn new(pos: Position) -> Self {
+    pub fn new(pos: &Position) -> Self {
         let mut chunk_data = [Block::GRASS; CHUNK_SIZE.pow(3)];
         for i in 0..chunk_data.len() {
-            chunk_data[i] = match rand::random(){
+            chunk_data[i] = match rand::random() {
                 0.0..0.5 => Block::AIR,
                 0.5..1.0 => Block::GRASS,
                 _ => todo!(),
             }
         }
-        Self { pos, chunk_data }
+        Self {
+            pos: pos.clone(),
+            chunk_data,
+        }
     }
 
     pub fn generate_chunk_data(&mut self) {
@@ -87,6 +94,11 @@ impl From<&Chunk> for Mesh {
                             pos.z as f32 - CHUNK_DISPLACEMENT + z as f32,
                         );
 
+                        // move to chunk generation
+                        if y > 20.0 {
+                            continue;
+                        }
+
                         #[rustfmt::skip]
                         vertices.push(vec![
                             Vertex { position: [x + -0.5, y + 0.5,  z + 0.0], color: color[0] }, // A
@@ -117,4 +129,56 @@ impl From<&Chunk> for Mesh {
 
         Self { vertices, indices }
     }
+}
+
+pub struct ChunkWatcher {
+    chunks: HashMap<Position, Chunk>,
+}
+
+impl ChunkWatcher {
+    pub fn new() -> Self {
+        Self {
+            chunks: HashMap::new(),
+        }
+    }
+
+    fn get_mesh(&mut self, pos: &Position) -> Mesh {
+        if let Some(chunk) = self.chunks.get(&pos) {
+            //return chunk;
+            return Mesh::from(chunk);
+        }
+
+        let chunk = Chunk::new(pos);
+        let mesh = Mesh::from(&chunk);
+
+        self.chunks.insert(pos.clone(), chunk);
+
+        mesh
+    }
+
+    pub fn get_required_chunk_mesh_data(&mut self, player_position: &Position) -> Vec<Mesh> {
+        let positions = get_required_chunk_positions(player_position);
+
+        positions
+            .iter()
+            .map(|pos| self.get_mesh(pos))
+            .collect::<Vec<_>>()
+    }
+}
+
+pub fn get_required_chunk_positions(player_position: &Position) -> Vec<Position> {
+    let mut positions = Vec::new();
+    let x = 2;
+    for y in -x..x {
+        for z in -x..x {
+            for x in -x..x {
+                positions.push(Position::new(
+                    player_position.x + x * CHUNK_SIZE as i32,
+                    player_position.y + y * CHUNK_SIZE as i32,
+                    player_position.z + z * CHUNK_SIZE as i32,
+                ));
+            }
+        }
+    }
+    positions
 }

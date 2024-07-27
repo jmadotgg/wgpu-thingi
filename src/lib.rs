@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use cgmath::prelude::*;
 use cgmath::Point3;
 use cgmath::SquareMatrix;
+use chunk::chunk_position_from_player_position;
 use chunk::Chunk;
 use chunk::ChunkWatcher;
 use chunk::Mesh;
@@ -13,6 +14,9 @@ use chunk::Position;
 use chunk::CHUNK_COUNT;
 use chunk::CHUNK_MAX_INDEX_COUNT;
 use chunk::CHUNK_MAX_VERTEX_COUNT;
+use chunk::CHUNK_SIZE;
+use chunk::HALF_CHUNK_SIZE;
+use chunk::VIEW_DISTANCE;
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
@@ -237,7 +241,8 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    chunk_buffers: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>,
+    //chunk_buffers: Vec<(wgpu::Buffer, wgpu::Buffer, u32)>,
+    chunk_buffers: HashMap<Position, (wgpu::Buffer, wgpu::Buffer, u32)>,
     num_indices: u32,
     camera: camera::Camera,
     projection: camera::Projection,
@@ -405,21 +410,47 @@ impl State {
         });
 
         let mut chunk_watcher = ChunkWatcher::new();
-        //let meshes = chunk_watcher.get_required_chunk_mesh_data(&chunk::Position::new(0, 0, 0));
-        //dbg!(
-        //    meshes.get(0).unwrap().vertices.len(),
-        //    meshes.get(0).unwrap().indices.len()
-        //);
-        //dbg!(meshes.get(0).unwrap().vertices.len() * size_of::<Vertex>());
+        //let mut chunk_buffers = Vec::new();
+        let mut chunk_buffers = HashMap::new();
 
-        let mut chunk_buffers = Vec::new();
-        ////for id in 0..1 {
+        for x in ((-VIEW_DISTANCE * CHUNK_SIZE as i32 - HALF_CHUNK_SIZE)
+            ..(VIEW_DISTANCE * CHUNK_SIZE as i32 + HALF_CHUNK_SIZE))
+            .step_by(CHUNK_SIZE)
+        {
+            for y in ((-VIEW_DISTANCE * CHUNK_SIZE as i32 - HALF_CHUNK_SIZE)
+                ..(VIEW_DISTANCE * CHUNK_SIZE as i32 + HALF_CHUNK_SIZE))
+                .step_by(CHUNK_SIZE)
+            {
+                for z in ((-VIEW_DISTANCE * CHUNK_SIZE as i32 - HALF_CHUNK_SIZE)
+                    ..(VIEW_DISTANCE * CHUNK_SIZE as i32 + HALF_CHUNK_SIZE))
+                    .step_by(CHUNK_SIZE)
+                {
+                    let pos = Position::new(x, y, z);
+                    dbg!(pos);
+                    let vertex_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some(&format!("Vertex Buffer {pos}")),
+                            contents: bytemuck::cast_slice(&vec![
+                                0u8;
+                                size_of::<Vertex>()
+                                    * CHUNK_MAX_VERTEX_COUNT
+                            ]),
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        });
+                    let index_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some(&format!("Index Buffer {pos}")),
+                            contents: bytemuck::cast_slice(&vec![0u8; CHUNK_MAX_INDEX_COUNT]),
+                            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                        });
+
+                    let num_indices = 0; //mesh.indices.len() as u32;
+                    chunk_buffers.insert(pos, (vertex_buffer, index_buffer, num_indices));
+                }
+            }
+        }
+
         let id = 1;
-        //dbg!(size_of_vertex);
-        //let Mesh { vertices, indices } = meshes.get(0).unwrap();
-        //let vertices: &[u8] = bytemuck::cast_slice(vertices);
-
-        //dbg!(vertices.len());
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Vertex Buffer {id}")),
             contents: bytemuck::cast_slice(&vec![
@@ -434,39 +465,30 @@ impl State {
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        //chunk_buffers.push((vertex_buffer, index_buffer, CHUNK_MAX_INDEX_COUNT as u32));
-        //}
-
-        //let chunk = Chunk::new(&chunk::Position::new(0, 0, 0));
-        //let mesh = Mesh::from(&chunk);
-
-        //let x: &[u8] = bytemuck::cast_slice(&mesh.vertices);
-        //dbg!(x.len());
-
-        //let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //    label: Some("Index Buffer"),
-        //    contents: x,
-        //    usage: wgpu::BufferUsages::INDEX,
-        //});
-
         let mut num_indices = 0; //mesh.indices.len() as u32;
 
-        // to trigger first chunk to render
-        let mut current_chunk = Position::new(i32::MAX, i32::MAX, i32::MAX);
+        // to trigger first chunk to render, - HALF_CHUNK because position check adds
+        // HALF_CHUNK_SIXE
+        //let mut current_chunk = Position::new(
+        //    i32::MAX - HALF_CHUNK_SIZE,
+        //    i32::MAX - HALF_CHUNK_SIZE,
+        //    i32::MAX - HALF_CHUNK_SIZE,
+        //);
+        let mut current_chunk = chunk_position_from_player_position(&Position::new(
+            camera.position.x as i32,
+            camera.position.y as i32,
+            camera.position.z as i32,
+        ));
 
         chunk_watcher.update_buffers(
             &mut queue,
-            &vertex_buffer,
-            &index_buffer,
+            &mut chunk_buffers,
+            //&vertex_buffer,
+            //&index_buffer,
             &mut num_indices,
             &Position::from(camera.position),
             &mut current_chunk,
         );
-        //let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //    label: Some("Vertex Buffer"),
-        //    contents: bytemuck::cast_slice(&mesh.vertices),
-        //    usage: wgpu::BufferUsages::VERTEX,
-        //});
 
         Self {
             window,
@@ -551,8 +573,9 @@ impl State {
 
         self.chunk_watcher.update_buffers(
             &mut self.queue,
-            &self.vertex_buffer,
-            &self.index_buffer,
+            &mut self.chunk_buffers,
+            //&self.vertex_buffer,
+            //&self.index_buffer,
             &mut self.num_indices,
             &Position::from(self.camera.position),
             &mut self.current_chunk,
@@ -684,7 +707,28 @@ impl State {
             //    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             //    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
             //}
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1)
+            for x in -VIEW_DISTANCE..VIEW_DISTANCE {
+                for y in -VIEW_DISTANCE..VIEW_DISTANCE {
+                    for z in -VIEW_DISTANCE..VIEW_DISTANCE {
+                        let relative_buffer_pos = Position::new(
+                            x * CHUNK_SIZE as i32 + if x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+                            y * CHUNK_SIZE as i32 + if y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+                            z * CHUNK_SIZE as i32 + if z < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+                        );
+
+                        let (vertex_buffer, index_buffer, num_indices) = self
+                            .chunk_buffers
+                            .get(&relative_buffer_pos)
+                            .expect("Goofed something up with chunk_buffer positions");
+
+                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        render_pass
+                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..*num_indices, 0, 0..1)
+                    }
+                }
+            }
+            //render_pass.draw_indexed(0..self.num_indices, 0, 0..1)
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

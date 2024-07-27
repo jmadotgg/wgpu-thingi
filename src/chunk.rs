@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{Vertex, INDICES};
 
-const CHUNK_SIZE: usize = 64;
-const HALF_CHUNK_SIZE: i32 = (CHUNK_SIZE / 2) as i32;
-const CHUNK_DISPLACEMENT: f32 = (CHUNK_SIZE / 2) as f32;
+pub const CHUNK_SIZE: usize = 64;
+pub const HALF_CHUNK_SIZE: i32 = (CHUNK_SIZE / 2) as i32;
+pub const CHUNK_DISPLACEMENT: f32 = (CHUNK_SIZE / 2) as f32;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Block {
@@ -19,7 +19,24 @@ pub struct Position {
     pub z: i32,
 }
 
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("({},{},{})", self.x, self.y, self.z))
+    }
+}
+
 impl std::cmp::Eq for Position {}
+
+impl std::ops::Add for Position {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
 
 impl Position {
     pub fn new(x: i32, y: i32, z: i32) -> Self {
@@ -181,8 +198,9 @@ impl ChunkWatcher {
     pub fn update_buffers(
         &mut self,
         queue: &mut wgpu::Queue,
-        vertex_buffer: &wgpu::Buffer,
-        index_buffer: &wgpu::Buffer,
+        chunk_buffers: &mut HashMap<Position, (wgpu::Buffer, wgpu::Buffer, u32)>,
+        //vertex_buffer: &wgpu::Buffer,
+        //index_buffer: &wgpu::Buffer,
         num_indices: &mut u32,
         player_position: &Position,
         current_chunk: &mut Position,
@@ -191,24 +209,193 @@ impl ChunkWatcher {
             return;
         }
 
+        let previous_chunk = (*current_chunk).clone();
         *current_chunk = chunk_position_from_player_position(player_position);
 
-        if let Some(mesh) = self.meshes.get(current_chunk) {
-            queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
-            queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
-            *num_indices = mesh.indices.len() as u32;
-            return;
+        dbg!(&previous_chunk, &current_chunk);
+
+        #[rustfmt::skip]
+        let (diff_x, diff_y, diff_z)= (
+            previous_chunk.x.abs_diff(current_chunk.x) as i32 * (if previous_chunk.x > current_chunk.x {-1} else {1}),
+            previous_chunk.y.abs_diff(current_chunk.y) as i32 * (if previous_chunk.y > current_chunk.y {-1} else {1}),
+            previous_chunk.z.abs_diff(current_chunk.z) as i32 * (if previous_chunk.z > current_chunk.z {-1} else {1}),
+        );
+
+        if diff_x != 0 {
+            for y in -VIEW_DISTANCE..VIEW_DISTANCE {
+                for z in -VIEW_DISTANCE..VIEW_DISTANCE {
+                    #[rustfmt::skip]
+                    //let relative_buffer_pos = Position::new(diff_x * CHUNK_SIZE as i32 + if current_chunk.x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE, y, z);
+                    let relative_buffer_pos = Position::new(
+                        diff_x * CHUNK_SIZE as i32 + if current_chunk.x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE, 
+                        y * CHUNK_SIZE as i32 + (if current_chunk.y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE), 
+                        z * CHUNK_SIZE as i32 + (if current_chunk.z < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE));
+
+                    let new_chunk_pos = *current_chunk + relative_buffer_pos;
+
+                    let (vertex_buffer, index_buffer, num_indices) =
+                        chunk_buffers.get_mut(&relative_buffer_pos).unwrap();
+
+                    if let Some(mesh) = self.meshes.get(&new_chunk_pos) {
+                        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                        queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+                        *num_indices = mesh.indices.len() as u32;
+                        continue;
+                    }
+
+                    let chunk = Chunk::new(&new_chunk_pos);
+                    let mesh = Mesh::from(&chunk);
+                    *num_indices = mesh.indices.len() as u32;
+
+                    queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                    queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+
+                    self.chunks.insert(current_chunk.clone(), chunk);
+                    self.meshes.insert(current_chunk.clone(), mesh);
+                }
+            }
+        }
+        if diff_y != 0 {
+            for x in -VIEW_DISTANCE..VIEW_DISTANCE {
+                for z in -VIEW_DISTANCE..VIEW_DISTANCE {
+                    #[rustfmt::skip]
+                    //let relative_buffer_pos = Position::new(x, diff_y * CHUNK_SIZE as i32 + if current_chunk.y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE, z);
+                    let relative_buffer_pos = Position::new(
+                        x * CHUNK_SIZE as i32 + (if current_chunk.x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE), 
+                        diff_y * CHUNK_SIZE as i32 + if current_chunk.y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE, 
+                        z * CHUNK_SIZE as i32 + (if current_chunk.z < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE));
+
+                    let new_chunk_pos = *current_chunk + relative_buffer_pos;
+
+                    let (vertex_buffer, index_buffer, num_indices) =
+                        chunk_buffers.get_mut(&relative_buffer_pos).unwrap();
+
+                    if let Some(mesh) = self.meshes.get(&new_chunk_pos) {
+                        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                        queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+                        *num_indices = mesh.indices.len() as u32;
+                        continue;
+                    }
+
+                    let chunk = Chunk::new(&new_chunk_pos);
+                    let mesh = Mesh::from(&chunk);
+                    *num_indices = mesh.indices.len() as u32;
+
+                    queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                    queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+
+                    self.chunks.insert(current_chunk.clone(), chunk);
+                    self.meshes.insert(current_chunk.clone(), mesh);
+                }
+            }
+        }
+        if diff_z != 0 {
+            for x in -VIEW_DISTANCE..VIEW_DISTANCE {
+                for y in -VIEW_DISTANCE..VIEW_DISTANCE {
+                    #[rustfmt::skip]
+                    let relative_buffer_pos = Position::new(
+                        x * CHUNK_SIZE as i32 + (if current_chunk.x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE), 
+                        y * CHUNK_SIZE as i32 + (if current_chunk.y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE), 
+                        diff_z * VIEW_DISTANCE as i32 + if current_chunk.z < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE);
+
+                    let new_chunk_pos = *current_chunk + relative_buffer_pos;
+
+                    dbg!(&diff_z, &relative_buffer_pos);
+                    let (vertex_buffer, index_buffer, num_indices) =
+                        chunk_buffers.get_mut(&relative_buffer_pos).unwrap();
+
+                    if let Some(mesh) = self.meshes.get(&new_chunk_pos) {
+                        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                        queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+                        *num_indices = mesh.indices.len() as u32;
+                        continue;
+                    }
+
+                    let chunk = Chunk::new(&new_chunk_pos);
+                    let mesh = Mesh::from(&chunk);
+                    *num_indices = mesh.indices.len() as u32;
+
+                    queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+                    queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+
+                    self.chunks.insert(current_chunk.clone(), chunk);
+                    self.meshes.insert(current_chunk.clone(), mesh);
+                }
+            }
         }
 
-        let chunk = Chunk::new(current_chunk);
-        let mesh = Mesh::from(&chunk);
-        *num_indices = mesh.indices.len() as u32;
+        //for x in -VIEW_DISTANCE..VIEW_DISTANCE {
+        //    for y in -VIEW_DISTANCE..VIEW_DISTANCE {
+        //        for z in -VIEW_DISTANCE..VIEW_DISTANCE {
+        //            let relative_buffer_pos = Position::new(
+        //                x * CHUNK_SIZE as i32 + if x < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+        //                y * CHUNK_SIZE as i32 + if y < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+        //                z * CHUNK_SIZE as i32 + if z < 0 { -1 } else { 1 } * HALF_CHUNK_SIZE,
+        //            );
 
-        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
-        queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+        //            let new_chunk_pos = *current_chunk + relative_buffer_pos;
 
-        self.chunks.insert(current_chunk.clone(), chunk);
-        self.meshes.insert(current_chunk.clone(), mesh);
+        //            let (vertex_buffer, index_buffer, num_indices) =
+        //                chunk_buffers.get_mut(&relative_buffer_pos).unwrap();
+
+        //            if let Some(mesh) = self.meshes.get(&new_chunk_pos) {
+        //                queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+        //                queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+        //                *num_indices = mesh.indices.len() as u32;
+        //                continue;
+        //            }
+
+        //            let chunk = Chunk::new(&new_chunk_pos);
+        //            let mesh = Mesh::from(&chunk);
+        //            *num_indices = mesh.indices.len() as u32;
+
+        //            queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+        //            queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+
+        //            self.chunks.insert(current_chunk.clone(), chunk);
+        //            self.meshes.insert(current_chunk.clone(), mesh);
+
+        //            //let vertex_buffer =
+        //            //    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        //            //        label: Some(&format!("Vertex Buffer {pos}")),
+        //            //        contents: bytemuck::cast_slice(&vec![
+        //            //            0u8;
+        //            //            size_of::<Vertex>()
+        //            //                * CHUNK_MAX_VERTEX_COUNT
+        //            //        ]),
+        //            //        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        //            //    });
+        //            //let index_buffer =
+        //            //    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        //            //        label: Some(&format!("Index Buffer {pos}")),
+        //            //        contents: bytemuck::cast_slice(&vec![0u8; CHUNK_MAX_INDEX_COUNT]),
+        //            //        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        //            //    });
+
+        //            //let num_indices = 0; //mesh.indices.len() as u32;
+        //            //chunk_buffers.insert(pos, (vertex_buffer, index_buffer, num_indices));
+        //        }
+        //    }
+        //}
+
+        //*current_chunk = chunk_position_from_player_position(player_position);
+
+        //if let Some(mesh) = self.meshes.get(current_chunk) {
+        //    queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+        //    queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+        //    *num_indices = mesh.indices.len() as u32;
+        //    return;
+        //}
+
+        //let chunk = Chunk::new(current_chunk);
+        //let mesh = Mesh::from(&chunk);
+        //*num_indices = mesh.indices.len() as u32;
+
+        //queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&mesh.vertices));
+        //queue.write_buffer(index_buffer, 0, bytemuck::cast_slice(&mesh.indices));
+
+        //self.chunks.insert(current_chunk.clone(), chunk);
+        //self.meshes.insert(current_chunk.clone(), mesh);
     }
 
     fn get_mesh(&self, pos: &Position) -> Mesh {
@@ -251,7 +438,7 @@ pub fn get_required_chunk_positions(player_position: &Position) -> Vec<Position>
     positions
 }
 
-pub const VIEW_DISTANCE: i32 = 2;
+pub const VIEW_DISTANCE: i32 = 1;
 pub const CHUNK_COUNT: i32 = (VIEW_DISTANCE * 2).pow(3);
 pub const CHUNK_MAX_VERTEX_COUNT: usize = CHUNK_SIZE.pow(3) * 8;
 pub const CHUNK_MAX_INDEX_COUNT: usize = 37748736; //CHUNK_SIZE.pow(3) * 36;
